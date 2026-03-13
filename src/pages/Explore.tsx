@@ -30,21 +30,13 @@ import ARViewer from "@/components/ARViewer";
 import StreetView360 from "@/components/StreetView360";
 import AddToTripButton from "@/components/AddToTripButton";
 
-import destinationAgra from "@/assets/destination-agra.jpg";
-import destinationGoa from "@/assets/destination-goa.jpg";
-import destinationKerala from "@/assets/destination-kerala.jpg";
-import travelBeach from "@/assets/travel-beach.jpg";
-import travelBoat from "@/assets/travel-boat.jpg";
-import travelKayak from "@/assets/travel-kayak.jpg";
+import {
+  onImageError,
+  getFallbackImage,
+  LOCAL_FALLBACKS,
+} from "@/lib/imageUtils";
 
-const fallbackImages = [
-  destinationAgra,
-  destinationGoa,
-  destinationKerala,
-  travelBeach,
-  travelBoat,
-  travelKayak,
-];
+const fallbackImages = LOCAL_FALLBACKS;
 
 // Expanded categories mapped to OpenTripMap "kinds"
 const categories = [
@@ -614,9 +606,13 @@ export default function Explore() {
                   <div className="flex-1 min-w-0">
                     <div className="relative h-48">
                       <img
-                        src={selectedPlace.preview?.source || fallbackImages[0]}
+                        src={
+                          selectedPlace.preview?.source ||
+                          getFallbackImage(selectedPlace.xid)
+                        }
                         alt={selectedPlace.name}
                         className="w-full h-full object-cover"
+                        onError={onImageError(selectedPlace.xid)}
                       />
                       <button
                         onClick={() => {
@@ -836,10 +832,7 @@ export default function Explore() {
                             fallbackImages[i % fallbackImages.length]
                           }
                           alt={place.name}
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              fallbackImages[i % fallbackImages.length];
-                          }}
+                          onError={onImageError(place.xid ?? i)}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                         <div className="absolute top-3 right-3 flex gap-1.5">
@@ -1441,10 +1434,7 @@ export default function Explore() {
                             fallbackImages[i % fallbackImages.length]
                           }
                           alt={place.name}
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              fallbackImages[i % fallbackImages.length];
-                          }}
+                          onError={onImageError(place.xid ?? i)}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />

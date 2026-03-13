@@ -26,22 +26,7 @@ import { useOnlineStatus } from "@/hooks/useOfflineTrip";
 import { getAllOfflineTrips } from "@/services/offlineTrip";
 import { useLanguage } from "@/hooks/useLanguage";
 import NearbyTravelers from "@/components/NearbyTravelers";
-
-import destinationAgra from "@/assets/destination-agra.jpg";
-import destinationGoa from "@/assets/destination-goa.jpg";
-import destinationKerala from "@/assets/destination-kerala.jpg";
-import travelBeach from "@/assets/travel-beach.jpg";
-import travelBoat from "@/assets/travel-boat.jpg";
-import travelOcean from "@/assets/travel-ocean.jpg";
-
-const tripImages = [
-  destinationAgra,
-  destinationGoa,
-  destinationKerala,
-  travelBeach,
-  travelBoat,
-  travelOcean,
-];
+import { getImageSrc, onImageError } from "@/lib/imageUtils";
 
 const tripTypes = [
   {
@@ -284,11 +269,10 @@ export default function Dashboard() {
                   >
                     <div className="relative h-28 sm:h-32 overflow-hidden">
                       <img
-                        src={
-                          trip.image_url || tripImages[idx % tripImages.length]
-                        }
+                        src={getImageSrc(trip.image_url, trip.id ?? idx)}
                         alt={trip.destination}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={onImageError(trip.id ?? idx)}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
                       <div className="absolute bottom-3 right-3 bg-card/90 backdrop-blur-sm px-2.5 py-1 rounded-lg text-xs font-semibold">
