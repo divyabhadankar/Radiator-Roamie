@@ -1,8 +1,7 @@
 // GNews API service for real-time safety warnings
-// API Key: 8345779e346229659945cc498c821838
+// All calls go through /api/gnews server route — no CORS issues, key stays server-side
 
-const GNEWS_API_KEY = "8345779e346229659945cc498c821838";
-const GNEWS_BASE = "https://gnews.io/api/v4";
+const GNEWS_API_URL = "/api/gnews";
 
 export interface NewsArticle {
   title: string;
@@ -136,9 +135,17 @@ async function fetchArticles(
   maxResults = 3,
 ): Promise<NewsArticle[]> {
   try {
-    const searchQuery = encodeURIComponent(`${query} ${location}`);
-    const url = `${GNEWS_BASE}/search?q=${searchQuery}&lang=en&max=${maxResults}&sortby=publishedAt&apikey=${GNEWS_API_KEY}`;
-    const res = await fetch(url);
+    const res = await fetch(GNEWS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "search",
+        q: `${query} ${location}`,
+        lang: "en",
+        max: maxResults,
+        sortby: "publishedAt",
+      }),
+    });
     if (!res.ok) return [];
     const data = await res.json();
     return (data.articles as NewsArticle[]) || [];
@@ -158,26 +165,32 @@ export async function fetchSafetyAlerts(
   const results = await Promise.allSettled(
     SAFETY_QUERIES.map(async (q) => {
       const keyword = q.keywords[0]; // primary keyword
-      const articles = await fetchArticles(keyword, destination, maxAlertsPerCategory);
-      return articles.map((article, idx): SafetyAlert => ({
-        id: `${q.type}-${idx}-${Date.now()}`,
-        type: q.type,
-        severity: determineSeverity(
-          article.title,
-          article.description || "",
-          q.severity,
-        ),
-        title: article.title,
-        description:
-          article.description ||
-          article.content?.slice(0, 200) ||
-          "No details available.",
-        source: article.source.name,
-        url: article.url,
-        publishedAt: article.publishedAt,
-        location: destination,
-        emoji: q.emoji,
-      }));
+      const articles = await fetchArticles(
+        keyword,
+        destination,
+        maxAlertsPerCategory,
+      );
+      return articles.map(
+        (article, idx): SafetyAlert => ({
+          id: `${q.type}-${idx}-${Date.now()}`,
+          type: q.type,
+          severity: determineSeverity(
+            article.title,
+            article.description || "",
+            q.severity,
+          ),
+          title: article.title,
+          description:
+            article.description ||
+            article.content?.slice(0, 200) ||
+            "No details available.",
+          source: article.source.name,
+          url: article.url,
+          publishedAt: article.publishedAt,
+          location: destination,
+          emoji: q.emoji,
+        }),
+      );
     }),
   );
 
@@ -250,11 +263,21 @@ export async function fetchSafetyScore(destination: string): Promise<{
 }
 
 // Fetch general travel advisory
-export async function fetchTravelAdvisory(destination: string): Promise<NewsArticle[]> {
+export async function fetchTravelAdvisory(
+  destination: string,
+): Promise<NewsArticle[]> {
   try {
-    const query = encodeURIComponent(`travel advisory ${destination} 2024 2025`);
-    const url = `${GNEWS_BASE}/search?q=${query}&lang=en&max=5&sortby=publishedAt&apikey=${GNEWS_API_KEY}`;
-    const res = await fetch(url);
+    const res = await fetch(GNEWS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "search",
+        q: `travel advisory ${destination} 2024 2025`,
+        lang: "en",
+        max: 5,
+        sortby: "publishedAt",
+      }),
+    });
     if (!res.ok) return [];
     const data = await res.json();
     return (data.articles as NewsArticle[]) || [];

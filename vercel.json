@@ -8,6 +8,18 @@
     },
     "api/groq-transcribe.ts": {
       "runtime": "@vercel/node"
+    },
+    "api/gnews.ts": {
+      "runtime": "@vercel/node"
+    },
+    "api/opentripmap.ts": {
+      "runtime": "@vercel/node"
+    },
+    "api/traffic.ts": {
+      "runtime": "@vercel/node"
+    },
+    "api/openroute.ts": {
+      "runtime": "@vercel/node"
     }
   },
   "rewrites": [

@@ -1,9 +1,7 @@
-// AI service — uses Groq API (OpenAI-compatible) with llama-3.3-70b-versatile
+// AI service — uses Groq API via /api/groq-chat server route (no client-side key needed)
 // Drop-in replacement for the previous Gemini service — all exports preserved
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
-const GROQ_BASE = "https://api.groq.com/openai/v1";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_CHAT_URL = "/api/groq-chat";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,17 +39,12 @@ export async function callGemini(
   maxOutputTokens = 8192,
   jsonMode = false,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
-
   const messages: OAIMessage[] = [
     { role: "system", content: systemInstruction },
     { role: "user", content: userPrompt },
   ];
 
   const body: Record<string, unknown> = {
-    model: GROQ_MODEL,
     messages,
     temperature,
     max_tokens: maxOutputTokens,
@@ -62,22 +55,26 @@ export async function callGemini(
     body.response_format = { type: "json_object" };
   }
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await fetch(GROQ_CHAT_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    if (res.status === 503 || res.status === 500)
-      throw new Error(`GROQ_ERROR_${res.status}`);
-    throw new Error(`Groq API error [${res.status}]: ${errText}`);
+    let errPayload: any = {};
+    try {
+      errPayload = await res.clone().json();
+    } catch {
+      /* ignore */
+    }
+    const code: string = errPayload?.error ?? "";
+    if (res.status === 429 || code === "RATE_LIMIT")
+      throw new Error("RATE_LIMIT");
+    if (res.status === 401 || code === "INVALID_API_KEY")
+      throw new Error("INVALID_API_KEY");
+    if (res.status >= 500) throw new Error(`GROQ_ERROR_${res.status}`);
+    throw new Error(`Groq API error [${res.status}]: ${code}`);
   }
 
   const data = await res.json();
@@ -95,10 +92,6 @@ export async function callGeminiChat(
   maxOutputTokens = 2048,
   jsonMode = false,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
-
   const oaiMessages: OAIMessage[] = [
     { role: "system", content: systemInstruction },
     ...messages.map((m) => ({
@@ -108,7 +101,6 @@ export async function callGeminiChat(
   ];
 
   const body: Record<string, unknown> = {
-    model: GROQ_MODEL,
     messages: oaiMessages,
     temperature,
     max_tokens: maxOutputTokens,
@@ -119,20 +111,25 @@ export async function callGeminiChat(
     body.response_format = { type: "json_object" };
   }
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await fetch(GROQ_CHAT_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    throw new Error(`Groq API error [${res.status}]: ${errText}`);
+    let errPayload: any = {};
+    try {
+      errPayload = await res.clone().json();
+    } catch {
+      /* ignore */
+    }
+    const code: string = errPayload?.error ?? "";
+    if (res.status === 429 || code === "RATE_LIMIT")
+      throw new Error("RATE_LIMIT");
+    if (res.status === 401 || code === "INVALID_API_KEY")
+      throw new Error("INVALID_API_KEY");
+    throw new Error(`Groq API error [${res.status}]: ${code}`);
   }
 
   const data = await res.json();
@@ -150,10 +147,6 @@ export async function streamGemini(
   temperature = 0.7,
   maxOutputTokens = 2048,
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("VITE_GROQ_API_KEY is not configured");
-  }
-
   const oaiMessages: OAIMessage[] = [
     { role: "system", content: systemInstruction },
     ...messages.map((m) => ({
@@ -162,14 +155,10 @@ export async function streamGemini(
     })),
   ];
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await fetch(GROQ_CHAT_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: GROQ_MODEL,
       messages: oaiMessages,
       temperature,
       max_tokens: maxOutputTokens,
@@ -178,10 +167,18 @@ export async function streamGemini(
   });
 
   if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    throw new Error(`Groq stream error [${res.status}]: ${errText}`);
+    let errPayload: any = {};
+    try {
+      errPayload = await res.clone().json();
+    } catch {
+      /* ignore */
+    }
+    const code: string = errPayload?.error ?? "";
+    if (res.status === 429 || code === "RATE_LIMIT")
+      throw new Error("RATE_LIMIT");
+    if (res.status === 401 || code === "INVALID_API_KEY")
+      throw new Error("INVALID_API_KEY");
+    throw new Error(`Groq stream error [${res.status}]: ${code}`);
   }
 
   if (!res.body) {

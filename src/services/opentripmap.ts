@@ -1,8 +1,29 @@
 // OpenTripMap API service
-// Calls OpenTripMap API directly from the browser — no Supabase edge function needed
+// All calls go through /api/opentripmap server route — zero client-side keys
 
-const BASE_URL = "https://api.opentripmap.com/0.1/en/places";
-const API_KEY = import.meta.env.VITE_OPENTRIPMAP_API_KEY as string;
+const OTM_API_URL = "/api/opentripmap";
+
+async function callOTM(
+  action: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch(OTM_API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...params }),
+  });
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`OTM API [${res.status}]: failed to parse response`);
+  }
+  if (!res.ok)
+    throw new Error(
+      `OTM API [${res.status}]: ${data?.error ?? JSON.stringify(data)}`,
+    );
+  return data;
+}
 
 export interface OTMPlace {
   xid: string;
@@ -99,26 +120,7 @@ export async function otmRadius(params: {
     throw new Error("radius must be between 0 and 100000 metres");
   }
 
-  let url =
-    `${BASE_URL}/radius` +
-    `?radius=${radius}` +
-    `&lon=${lon}` +
-    `&lat=${lat}` +
-    `&kinds=${encodeURIComponent(kinds)}` +
-    `&limit=${limit}` +
-    `&format=${format}` +
-    `&apikey=${API_KEY}`;
-
-  if (rate !== undefined) url += `&rate=${rate}`;
-
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenTripMap radius error [${response.status}]: ${text}`);
-  }
-
-  return response.json();
+  return callOTM("radius", { lat, lng: lon, radius, kinds, limit });
 }
 
 // ── Place details by XID ─────────────────────────────────────────────────────
@@ -127,16 +129,7 @@ export async function otmDetails(xid: string): Promise<OTMPlaceDetail> {
     throw new Error("xid is required for details");
   }
 
-  const url = `${BASE_URL}/xid/${encodeURIComponent(xid.trim())}?apikey=${API_KEY}`;
-
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenTripMap details error [${response.status}]: ${text}`);
-  }
-
-  return response.json();
+  return callOTM("details", { xid: xid.trim() }) as Promise<OTMPlaceDetail>;
 }
 
 // ── Autosuggest: search by name near coordinates ─────────────────────────────
@@ -158,25 +151,14 @@ export async function otmAutosuggest(params: {
     throw new Error("lat and lon are required for autosuggest");
   }
 
-  let url =
-    `${BASE_URL}/autosuggest` +
-    `?name=${encodeURIComponent(name.trim())}` +
-    `&radius=${radius}` +
-    `&lon=${lon}` +
-    `&lat=${lat}` +
-    `&limit=${limit}` +
-    `&apikey=${API_KEY}`;
-
-  if (kinds) url += `&kinds=${encodeURIComponent(kinds)}`;
-
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenTripMap autosuggest error [${response.status}]: ${text}`);
-  }
-
-  return response.json();
+  return callOTM("autosuggest", {
+    name: name.trim(),
+    lat,
+    lng: lon,
+    radius,
+    limit,
+    kinds,
+  }) as Promise<OTMPlace[]>;
 }
 
 // ── Places within bounding box ───────────────────────────────────────────────
@@ -192,7 +174,13 @@ export async function otmBbox(params: {
   rate?: number;
   format?: string;
 }): Promise<OTMPlace[]> {
-  const { bbox, kinds = "interesting_places", limit = 20, rate, format = "json" } = params;
+  const {
+    bbox,
+    kinds = "interesting_places",
+    limit = 20,
+    rate,
+    format = "json",
+  } = params;
 
   if (
     !bbox ||
@@ -204,27 +192,14 @@ export async function otmBbox(params: {
     throw new Error("bbox with lon_min, lat_min, lon_max, lat_max is required");
   }
 
-  let url =
-    `${BASE_URL}/bbox` +
-    `?lon_min=${bbox.lon_min}` +
-    `&lat_min=${bbox.lat_min}` +
-    `&lon_max=${bbox.lon_max}` +
-    `&lat_max=${bbox.lat_max}` +
-    `&kinds=${encodeURIComponent(kinds)}` +
-    `&limit=${limit}` +
-    `&format=${format}` +
-    `&apikey=${API_KEY}`;
-
-  if (rate !== undefined) url += `&rate=${rate}`;
-
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenTripMap bbox error [${response.status}]: ${text}`);
-  }
-
-  return response.json();
+  return callOTM("bbox", {
+    lonMin: bbox.lon_min,
+    latMin: bbox.lat_min,
+    lonMax: bbox.lon_max,
+    latMax: bbox.lat_max,
+    kinds,
+    limit,
+  }) as Promise<OTMPlace[]>;
 }
 
 // ── Unified action-based dispatcher (mirrors the edge-function interface) ─────
