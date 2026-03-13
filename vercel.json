@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/amadeus.ts": {
+      "runtime": "@vercel/node"
+    }
+  },
   "rewrites": [
     {
       "source": "/((?!api/.*).*)",
