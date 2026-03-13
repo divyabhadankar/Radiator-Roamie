@@ -180,26 +180,11 @@ async function identifyFromVideo(
   ctx.drawImage(video, 0, 0);
   const base64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
 
-  const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-  if (!GROQ_API_KEY) {
-    // Fallback to Gemini text description
-    return callGemini(
-      "You are an accessibility assistant for a visually impaired traveller. Describe what might be in front of them based on a travel context. Keep it brief and practical.",
-      "Describe a typical travel scene clearly for a blind person in 3 sentences.",
-      0.5,
-      300,
-      false,
-    );
-  }
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  // Call via server-side route — no client-side API key needed
+  const res = await fetch("/api/groq-chat", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama-3.2-11b-vision-preview",
       messages: [
         {
           role: "user",
@@ -215,11 +200,24 @@ async function identifyFromVideo(
           ],
         },
       ],
+      model: "llama-3.2-11b-vision-preview",
       temperature: 0.2,
       max_tokens: 450,
+      stream: false,
     }),
   });
-  if (!res.ok) throw new Error(`Vision API error: ${res.status}`);
+
+  if (!res.ok) {
+    // Fallback to text description if vision call fails
+    return callGemini(
+      "You are an accessibility assistant for a visually impaired traveller. Describe what might be in front of them based on a travel context. Keep it brief and practical.",
+      "Describe a typical travel scene clearly for a blind person in 3 sentences.",
+      0.5,
+      300,
+      false,
+    );
+  }
+
   const data = await res.json();
   return (
     data.choices?.[0]?.message?.content ?? "Could not identify scene content."

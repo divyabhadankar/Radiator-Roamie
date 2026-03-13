@@ -294,24 +294,19 @@ export default function Itinerary() {
         return;
       }
 
-      const ORS_KEY = import.meta.env.VITE_ORS_API_KEY as string;
-      const res = await fetch(
-        "https://api.openrouteservice.org/v2/directions/driving-car/json",
-        {
-          method: "POST",
-          headers: {
-            Authorization: ORS_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            coordinates: [
-              [oLon, oLat],
-              [dLon, dLat],
-            ],
-            units: "km",
-          }),
-        },
-      );
+      const res = await fetch("/api/openroute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "directions",
+          profile: "driving-car",
+          coordinates: [
+            [oLon, oLat],
+            [dLon, dLat],
+          ],
+          units: "km",
+        }),
+      });
       if (!res.ok) throw new Error("Route fetch failed");
       const data = await res.json();
       const summary = data.routes?.[0]?.summary;
