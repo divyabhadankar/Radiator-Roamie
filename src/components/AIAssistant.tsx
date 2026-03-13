@@ -120,12 +120,19 @@ export default function AIAssistant() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [wakeListening, setWakeListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  // Voice is always supported — we use MediaRecorder + Groq Whisper
+  // Voice supported if browser has SpeechRecognition OR MediaRecorder
+  const SpeechRecognitionAPI =
+    typeof window !== "undefined"
+      ? (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition
+      : null;
   const voiceSupported =
-    typeof navigator !== "undefined" && !!navigator.mediaDevices;
+    typeof navigator !== "undefined" &&
+    (!!SpeechRecognitionAPI || !!navigator.mediaDevices);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const recordingRef = useRef<RecordingHandle | null>(null);
+  const voiceRecognitionRef = useRef<any>(null);
   const wakeRecognitionRef = useRef<any>(null);
 
   // Refs so closures always see latest value
@@ -846,13 +853,24 @@ export default function AIAssistant() {
     [handleAction, toast],
   );
 
-  // ── Stop voice recording ─────────────────────────────────────────────────
-  // ── Stop Groq recording ──────────────────────────────────────────────────
+  // ── Stop voice (Web Speech API path) ─────────────────────────────────────
   const stopVoice = useCallback(async () => {
     if (!isListeningRef.current) return;
     isListeningRef.current = false;
     setIsListening(false);
 
+    // If using Web Speech API recognition, just stop it — result fires via onresult
+    if (voiceRecognitionRef.current) {
+      try {
+        voiceRecognitionRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+      voiceRecognitionRef.current = null;
+      return;
+    }
+
+    // Groq / MediaRecorder fallback path
     const handle = recordingRef.current;
     recordingRef.current = null;
 
@@ -879,60 +897,22 @@ export default function AIAssistant() {
       }
     } catch (err: any) {
       setInput("");
-      const msg = err?.message ?? "";
-      if (msg.startsWith("EMPTY_AUDIO") || msg === "EMPTY_AUDIO") {
-        toast({
-          title: "No speech detected",
-          description: "Hold the mic button, speak clearly, then release.",
-        });
-      } else if (msg.startsWith("RATE_LIMIT")) {
-        toast({
-          title: "Rate limited",
-          description:
-            "Groq API rate limit reached. Please wait a moment and try again.",
-          variant: "destructive",
-        });
-      } else if (
-        msg.startsWith("INVALID_API_KEY") ||
-        msg.startsWith("MISSING_API_KEY")
-      ) {
-        toast({
-          title: "Voice not configured",
-          description:
-            "Groq API key is missing or invalid. Add VITE_GROQ_API_KEY to your Vercel environment variables and redeploy.",
-          variant: "destructive",
-        });
-      } else if (msg.startsWith("AUDIO_TOO_LARGE")) {
-        toast({
-          title: "Recording too long",
-          description: "Please keep your voice message under 25 MB.",
-          variant: "destructive",
-        });
-      } else if (msg.toLowerCase().includes("network")) {
-        toast({
-          title: "Network error",
-          description:
-            "Could not reach Groq API. Check your internet connection.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Transcription failed",
-          description: `Could not understand audio (${msg.slice(0, 80) || "unknown error"}). Please type instead.`,
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: "Transcription failed",
+        description: "Could not understand audio. Please type instead.",
+        variant: "destructive",
+      });
     } finally {
       setIsTranscribing(false);
     }
   }, [sendMessage, toast, userLang]);
 
-  // ── Start Groq Whisper voice input ───────────────────────────────────────
+  // ── Start voice — Web Speech API primary, Groq optional fallback ─────────
   const startVoice = useCallback(async () => {
     if (!voiceSupported) {
       toast({
         title: "Voice not supported",
-        description: "Your browser does not support audio recording.",
+        description: "Your browser does not support voice input.",
         variant: "destructive",
       });
       return;
@@ -944,9 +924,97 @@ export default function AIAssistant() {
       return;
     }
 
-    // Stop TTS while user is speaking
     stopSpeaking();
 
+    // ── PRIMARY: Web Speech API (no API key needed) ───────────────────────
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (SpeechRecognitionCtor) {
+      try {
+        const recognition = new SpeechRecognitionCtor();
+        recognition.lang = userLang || "en-IN";
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+          isListeningRef.current = true;
+          setIsListening(true);
+          setInput("🎙️ Listening…");
+        };
+
+        recognition.onresult = (event: any) => {
+          const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? "";
+          if (transcript) {
+            setInput(transcript);
+            sendMessage(transcript);
+          } else {
+            setInput("");
+            toast({
+              title: "No speech detected",
+              description: "Please speak clearly and try again.",
+            });
+          }
+          isListeningRef.current = false;
+          setIsListening(false);
+          voiceRecognitionRef.current = null;
+        };
+
+        recognition.onerror = (event: any) => {
+          isListeningRef.current = false;
+          setIsListening(false);
+          voiceRecognitionRef.current = null;
+          setInput("");
+
+          const errCode = event.error ?? "";
+          if (errCode === "not-allowed" || errCode === "permission-denied") {
+            toast({
+              title: "Microphone blocked",
+              description:
+                "Please allow microphone access in your browser settings.",
+              variant: "destructive",
+            });
+          } else if (errCode === "no-speech") {
+            toast({
+              title: "No speech detected",
+              description: "Please speak clearly and try again.",
+            });
+          } else if (errCode === "network") {
+            toast({
+              title: "Network error",
+              description:
+                "Speech recognition requires an internet connection.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Voice error",
+              description: `Could not process voice (${errCode || "unknown"}). Please type instead.`,
+              variant: "destructive",
+            });
+          }
+        };
+
+        recognition.onend = () => {
+          if (isListeningRef.current) {
+            isListeningRef.current = false;
+            setIsListening(false);
+            voiceRecognitionRef.current = null;
+          }
+        };
+
+        voiceRecognitionRef.current = recognition;
+        recognition.start();
+        return;
+      } catch (err: any) {
+        // Web Speech API failed — fall through to Groq
+        voiceRecognitionRef.current = null;
+      }
+    }
+
+    // ── FALLBACK: Groq Whisper via MediaRecorder ──────────────────────────
     try {
       const handle = await startGroqRecording();
       recordingRef.current = handle;
@@ -978,7 +1046,7 @@ export default function AIAssistant() {
         });
       }
     }
-  }, [stopVoice, toast, voiceSupported]);
+  }, [stopVoice, toast, voiceSupported, userLang, sendMessage]);
 
   // ── Listen for auto-start voice event (from wake word) ───────────────────
   useEffect(() => {
@@ -995,6 +1063,15 @@ export default function AIAssistant() {
   useEffect(() => {
     if (!open && isListeningRef.current) {
       isListeningRef.current = false;
+      // Stop Web Speech API if active
+      if (voiceRecognitionRef.current) {
+        try {
+          voiceRecognitionRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+        voiceRecognitionRef.current = null;
+      }
       recordingRef.current?.abort();
       recordingRef.current = null;
       setIsListening(false);
