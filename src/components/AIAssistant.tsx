@@ -880,27 +880,45 @@ export default function AIAssistant() {
     } catch (err: any) {
       setInput("");
       const msg = err?.message ?? "";
-      if (msg === "EMPTY_AUDIO") {
+      if (msg.startsWith("EMPTY_AUDIO") || msg === "EMPTY_AUDIO") {
         toast({
           title: "No speech detected",
-          description: "Please try again.",
+          description: "Hold the mic button, speak clearly, then release.",
         });
-      } else if (msg === "RATE_LIMIT") {
+      } else if (msg.startsWith("RATE_LIMIT")) {
         toast({
           title: "Rate limited",
-          description: "Please wait a moment.",
+          description:
+            "Groq API rate limit reached. Please wait a moment and try again.",
           variant: "destructive",
         });
-      } else if (msg === "INVALID_API_KEY") {
+      } else if (
+        msg.startsWith("INVALID_API_KEY") ||
+        msg.startsWith("MISSING_API_KEY")
+      ) {
         toast({
-          title: "API key error",
-          description: "Groq API key is invalid.",
+          title: "Voice not configured",
+          description:
+            "Groq API key is missing or invalid. Add VITE_GROQ_API_KEY to your Vercel environment variables and redeploy.",
+          variant: "destructive",
+        });
+      } else if (msg.startsWith("AUDIO_TOO_LARGE")) {
+        toast({
+          title: "Recording too long",
+          description: "Please keep your voice message under 25 MB.",
+          variant: "destructive",
+        });
+      } else if (msg.toLowerCase().includes("network")) {
+        toast({
+          title: "Network error",
+          description:
+            "Could not reach Groq API. Check your internet connection.",
           variant: "destructive",
         });
       } else {
         toast({
           title: "Transcription failed",
-          description: "Could not understand audio. Please type instead.",
+          description: `Could not understand audio (${msg.slice(0, 80) || "unknown error"}). Please type instead.`,
           variant: "destructive",
         });
       }

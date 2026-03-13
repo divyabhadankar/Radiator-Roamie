@@ -1,12 +1,22 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { MapPin, Mail, Lock, User, ArrowRight, Eye, EyeOff } from "lucide-react";
+import {
+  MapPin,
+  Mail,
+  Lock,
+  User,
+  ArrowRight,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Auth() {
   const [searchParams] = useSearchParams();
-  const [isSignup, setIsSignup] = useState(searchParams.get("mode") === "signup");
+  const [isSignup, setIsSignup] = useState(
+    searchParams.get("mode") === "signup",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -16,7 +26,9 @@ export default function Auth() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         navigate("/dashboard");
       }
@@ -35,27 +47,98 @@ export default function Auth() {
 
     try {
       if (isSignup) {
-        const { error } = await supabase.auth.signUp({
+        // Step 1: Create the account
+        const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: { name },
-            emailRedirectTo: window.location.origin,
           },
         });
-        if (error) throw error;
-        toast({
-          title: "Account created!",
-          description: "Please check your email to verify your account.",
+
+        if (signUpError) {
+          // If user already exists, just try signing in directly
+          if (
+            signUpError.message.toLowerCase().includes("already registered") ||
+            signUpError.message
+              .toLowerCase()
+              .includes("already been registered") ||
+            signUpError.message.toLowerCase().includes("user already")
+          ) {
+            const { error: signInErr } = await supabase.auth.signInWithPassword(
+              { email, password },
+            );
+            if (signInErr) throw signInErr;
+            return;
+          }
+          throw signUpError;
+        }
+
+        // Step 2: Immediately sign in — bypasses email confirmation entirely
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
+
+        if (!signInError) {
+          // Signed in successfully — onAuthStateChange will redirect to /dashboard
+          toast({
+            title: "Welcome to Radiator Routes! 🗺️",
+            description: "Your account is ready. Happy travels!",
+          });
+          return;
+        }
+
+        // If sign-in failed it likely means Supabase still requires email confirmation
+        // Show a helpful message instead of a crash
+        if (signInError.message.toLowerCase().includes("email not confirmed")) {
+          toast({
+            title: "Almost there!",
+            description:
+              "A confirmation email was sent. Please verify your email then sign in.",
+          });
+          setIsSignup(false);
+          setPassword("");
+        } else {
+          throw signInError;
+        }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        // Normal sign-in
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (error) throw error;
+        // onAuthStateChange handles the redirect
       }
     } catch (error: any) {
+      const msg: string =
+        error?.message || "Something went wrong. Please try again.";
+      const lower = msg.toLowerCase();
+
+      let friendly = msg;
+      if (lower.includes("rate limit") || lower.includes("email rate limit")) {
+        friendly =
+          "Too many attempts. Please wait a few minutes and try again.";
+      } else if (
+        lower.includes("invalid login credentials") ||
+        lower.includes("invalid credentials")
+      ) {
+        friendly = "Incorrect email or password. Please try again.";
+      } else if (
+        lower.includes("weak password") ||
+        (lower.includes("password") && lower.includes("short"))
+      ) {
+        friendly = "Password must be at least 6 characters long.";
+      } else if (lower.includes("invalid email")) {
+        friendly = "Please enter a valid email address.";
+      } else if (lower.includes("network") || lower.includes("fetch")) {
+        friendly = "Network error. Please check your connection and try again.";
+      }
+
       toast({
         title: "Error",
-        description: error.message,
+        description: friendly,
         variant: "destructive",
       });
     } finally {
@@ -65,7 +148,7 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Left - Brand */}
+      {/* Left - Brand Panel */}
       <div className="hidden lg:flex w-1/2 bg-primary relative overflow-hidden items-center justify-center p-12">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-primary-foreground blur-3xl" />
@@ -82,10 +165,15 @@ export default function Auth() {
             Plan trips that everyone loves
           </h2>
           <p className="mt-4 text-lg opacity-80 leading-relaxed">
-            AI-powered group travel planning with voice-first interaction, smart negotiation, and real-time replanning — all in ₹ INR.
+            AI-powered group travel planning with voice-first interaction, smart
+            negotiation, and real-time replanning — all in ₹ INR.
           </p>
           <div className="mt-10 space-y-4">
-            {["Voice-first AI planning", "Group negotiation engine", "Real-time disruption alerts"].map((item) => (
+            {[
+              "Voice-first AI planning",
+              "Group negotiation engine",
+              "Real-time disruption alerts",
+            ].map((item) => (
               <div key={item} className="flex items-center gap-3">
                 <div className="w-6 h-6 rounded-full bg-primary-foreground/20 flex items-center justify-center">
                   <ArrowRight className="w-3 h-3" />
@@ -97,27 +185,34 @@ export default function Auth() {
         </div>
       </div>
 
-      {/* Right - Form */}
+      {/* Right - Form Panel */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
+          {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
               <MapPin className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="text-lg font-bold text-foreground">Radiator Routes</span>
+            <span className="text-lg font-bold text-foreground">
+              Radiator Routes
+            </span>
           </div>
 
           <h1 className="text-2xl font-bold text-foreground">
             {isSignup ? "Create your account" : "Welcome back"}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {isSignup ? "Start planning unforgettable trips" : "Continue your travel planning"}
+            {isSignup
+              ? "Start planning unforgettable trips"
+              : "Continue your travel planning"}
           </p>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             {isSignup && (
               <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Full Name</label>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                  Full Name
+                </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
@@ -131,8 +226,11 @@ export default function Auth() {
                 </div>
               </div>
             )}
+
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Email</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">
+                Email
+              </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
@@ -145,8 +243,11 @@ export default function Auth() {
                 />
               </div>
             </div>
+
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Password</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">
+                Password
+              </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
@@ -163,7 +264,11 @@ export default function Auth() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -173,7 +278,11 @@ export default function Auth() {
               disabled={loading}
               className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? "Please wait..." : isSignup ? "Create Account" : "Sign In"}
+              {loading
+                ? "Please wait..."
+                : isSignup
+                  ? "Create Account & Sign In"
+                  : "Sign In"}
               {!loading && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
@@ -181,7 +290,10 @@ export default function Auth() {
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {isSignup ? "Already have an account?" : "Don't have an account?"}{" "}
             <button
-              onClick={() => setIsSignup(!isSignup)}
+              onClick={() => {
+                setIsSignup(!isSignup);
+                setPassword("");
+              }}
               className="text-primary font-semibold hover:underline"
             >
               {isSignup ? "Sign in" : "Sign up"}

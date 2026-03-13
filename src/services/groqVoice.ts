@@ -4,7 +4,7 @@
 // • Text-to-Speech  → Browser SpeechSynthesis (language-aware)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 const WHISPER_MODEL = "whisper-large-v3-turbo";
 
@@ -151,12 +151,10 @@ export async function transcribeWithGroq(
   language = "en",
 ): Promise<string> {
   if (!GROQ_API_KEY) {
-    throw new Error(
-      "VITE_GROQ_API_KEY is not configured. Add it to your .env file.",
-    );
+    throw new Error("MISSING_API_KEY");
   }
 
-  if (!audioBlob || audioBlob.size < 500) {
+  if (!audioBlob || audioBlob.size < 100) {
     throw new Error("EMPTY_AUDIO");
   }
 
@@ -175,8 +173,8 @@ export async function transcribeWithGroq(
 
   // Strip region subtag — Whisper uses ISO 639-1 (e.g. "hi", not "hi-IN")
   const langCode = language.split("-")[0].toLowerCase();
-  // Only send language param when it's not English (speeds up English inference)
-  if (langCode && langCode !== "en") {
+  // Always send language param so Whisper doesn't auto-detect incorrectly
+  if (langCode) {
     formData.append("language", langCode);
   }
 
@@ -203,18 +201,9 @@ export async function transcribeWithGroq(
       /* ignore */
     }
 
-    if (res.status === 401)
-      throw new Error(
-        "INVALID_API_KEY: Your Groq API key is invalid or expired.",
-      );
-    if (res.status === 429)
-      throw new Error(
-        "RATE_LIMIT: Groq rate limit exceeded. Please wait a moment.",
-      );
-    if (res.status === 413)
-      throw new Error(
-        "AUDIO_TOO_LARGE: Recording is too long. Please keep it under 25 MB.",
-      );
+    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    if (res.status === 429) throw new Error("RATE_LIMIT");
+    if (res.status === 413) throw new Error("AUDIO_TOO_LARGE");
 
     throw new Error(
       `Groq Whisper error [${res.status}]: ${errBody.slice(0, 300)}`,
