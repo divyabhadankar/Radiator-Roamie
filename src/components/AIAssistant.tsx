@@ -512,9 +512,12 @@ export default function AIAssistant() {
                 injectToolResult(result);
               }
             } catch (e: any) {
-              injectToolResult(
-                `✈️ Flight search error: ${e.message}. Check that VITE_AMADEUS_API_KEY and VITE_AMADEUS_API_SECRET are set.`,
-              );
+              const msg: string = e?.message ?? "";
+              const friendlyFlight =
+                msg.includes("not configured") || msg.includes("credentials")
+                  ? "✈️ **Flight search is temporarily unavailable.**\n\nThe Amadeus API keys have not been configured on the server yet. Please set `AMADEUS_API_KEY` and `AMADEUS_API_SECRET` in your Supabase Edge Function secrets.\n\nIn the meantime, try searching on **MakeMyTrip**, **Skyscanner**, or **Google Flights**."
+                  : `✈️ **Flight search failed.** ${msg || "Please try again in a moment."}`;
+              injectToolResult(friendlyFlight);
             }
             continue;
           }
@@ -541,9 +544,12 @@ export default function AIAssistant() {
                 injectToolResult(result);
               }
             } catch (e: any) {
-              injectToolResult(
-                `🏨 Hotel search error: ${e.message}. Check Amadeus API keys.`,
-              );
+              const msg: string = e?.message ?? "";
+              const friendlyHotel =
+                msg.includes("not configured") || msg.includes("credentials")
+                  ? "🏨 **Hotel search is temporarily unavailable.**\n\nThe Amadeus API keys have not been configured on the server yet. Please set `AMADEUS_API_KEY` and `AMADEUS_API_SECRET` in your Supabase Edge Function secrets.\n\nIn the meantime, try **Booking.com**, **Agoda**, or **MakeMyTrip Hotels**."
+                  : `🏨 **Hotel search failed.** ${msg || "Please try again in a moment."}`;
+              injectToolResult(friendlyHotel);
             }
             continue;
           }

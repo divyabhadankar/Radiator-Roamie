@@ -1,53 +1,14 @@
-// Amadeus API service
-// Calls Amadeus Travel APIs directly from the browser — no Supabase edge function needed
+// ─────────────────────────────────────────────────────────────────────────────
+// Amadeus API Service  v3
+// All calls are routed through the Supabase Edge Function "amadeus"
+// so that API keys stay server-side and CORS is never an issue.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const AMADEUS_API_KEY = import.meta.env.VITE_AMADEUS_API_KEY as string;
-const AMADEUS_API_SECRET = import.meta.env.VITE_AMADEUS_API_SECRET as string;
-const BASE_URL = "https://test.api.amadeus.com";
+import { supabase } from "@/integrations/supabase/client";
 
-// ── OAuth token cache ────────────────────────────────────────────────────────
-let _cachedToken: string | null = null;
-let _tokenExpiry = 0;
+// ── Types ────────────────────────────────────────────────────────────────────
 
-async function getAmadeusToken(): Promise<string> {
-  const now = Date.now();
-  if (_cachedToken && now < _tokenExpiry) return _cachedToken;
-
-  const res = await fetch(`${BASE_URL}/v1/security/oauth2/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=client_credentials&client_id=${AMADEUS_API_KEY}&client_secret=${AMADEUS_API_SECRET}`,
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(
-      `Amadeus auth failed [${res.status}]: ${JSON.stringify(data)}`,
-    );
-  }
-
-  _cachedToken = data.access_token as string;
-  // expires_in is in seconds; cache with a 60-second buffer
-  _tokenExpiry = now + (Number(data.expires_in ?? 1799) - 60) * 1000;
-  return _cachedToken;
-}
-
-async function amadeusGet(url: string): Promise<unknown> {
-  const token = await getAmadeusToken();
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(
-      `Amadeus API error [${res.status}]: ${JSON.stringify(data)}`,
-    );
-  }
-  return data;
-}
-
-// ── Flight offers ────────────────────────────────────────────────────────────
-export async function amadeusFlightOffers(params: {
+export interface FlightOffersParams {
   origin: string;
   destination: string;
   departureDate: string;
@@ -56,279 +17,253 @@ export async function amadeusFlightOffers(params: {
   returnDate?: string;
   travelClass?: string;
   nonStop?: boolean;
-}): Promise<unknown> {
-  const {
-    origin,
-    destination,
-    departureDate,
-    adults = 1,
-    max = 5,
-    returnDate,
-    travelClass,
-    nonStop,
-  } = params;
-
-  if (!origin || !destination || !departureDate) {
-    throw new Error("origin, destination and departureDate are required");
-  }
-
-  let url =
-    `${BASE_URL}/v2/shopping/flight-offers` +
-    `?originLocationCode=${origin}` +
-    `&destinationLocationCode=${destination}` +
-    `&departureDate=${departureDate}` +
-    `&adults=${adults}` +
-    `&max=${max}` +
-    `&currencyCode=INR`;
-
-  if (returnDate) url += `&returnDate=${returnDate}`;
-  if (travelClass) url += `&travelClass=${travelClass}`;
-  if (nonStop !== undefined) url += `&nonStop=${nonStop}`;
-
-  return amadeusGet(url);
 }
 
-// ── Hotel list by city ───────────────────────────────────────────────────────
-export async function amadeusHotelList(params: {
+export interface HotelListParams {
   cityCode: string;
   radius?: number;
   radiusUnit?: string;
   ratings?: string;
-}): Promise<unknown> {
-  const { cityCode, radius = 5, radiusUnit = "KM", ratings } = params;
-
-  if (!cityCode) throw new Error("cityCode is required");
-
-  let url =
-    `${BASE_URL}/v1/reference-data/locations/hotels/by-city` +
-    `?cityCode=${cityCode}` +
-    `&radius=${radius}` +
-    `&radiusUnit=${radiusUnit}`;
-
-  if (ratings) url += `&ratings=${ratings}`;
-
-  return amadeusGet(url);
 }
 
-// ── Hotel offers (pricing) ───────────────────────────────────────────────────
-export async function amadeusHotelOffers(params: {
+export interface HotelOffersParams {
   hotelIds: string;
   checkInDate: string;
   checkOutDate: string;
   adults?: number;
-}): Promise<unknown> {
-  const { hotelIds, checkInDate, checkOutDate, adults = 1 } = params;
-
-  if (!hotelIds || !checkInDate || !checkOutDate) {
-    throw new Error("hotelIds, checkInDate and checkOutDate are required");
-  }
-
-  const url =
-    `${BASE_URL}/v3/shopping/hotel-offers` +
-    `?hotelIds=${hotelIds}` +
-    `&checkInDate=${checkInDate}` +
-    `&checkOutDate=${checkOutDate}` +
-    `&adults=${adults}` +
-    `&currency=INR`;
-
-  return amadeusGet(url);
 }
 
-// ── City / Airport search ────────────────────────────────────────────────────
-export async function amadeusCitySearch(params: {
+export interface CitySearchParams {
   keyword: string;
   subType?: string;
-}): Promise<unknown> {
-  const { keyword, subType = "CITY,AIRPORT" } = params;
-
-  if (!keyword) throw new Error("keyword is required");
-
-  const url =
-    `${BASE_URL}/v1/reference-data/locations` +
-    `?subType=${subType}` +
-    `&keyword=${encodeURIComponent(keyword)}` +
-    `&page%5Blimit%5D=10`;
-
-  return amadeusGet(url);
 }
 
-// ── Flight inspiration (cheap destinations) ──────────────────────────────────
-export async function amadeusFlightInspirations(params: {
+export interface FlightInspirationsParams {
   origin: string;
   maxPrice?: number;
   departureDate?: string;
-}): Promise<unknown> {
-  const { origin, maxPrice, departureDate } = params;
-
-  if (!origin) throw new Error("origin is required");
-
-  let url =
-    `${BASE_URL}/v1/shopping/flight-destinations` +
-    `?origin=${origin}` +
-    `&currencyCode=INR`;
-
-  if (maxPrice) url += `&maxPrice=${maxPrice}`;
-  if (departureDate) url += `&departureDate=${departureDate}`;
-
-  return amadeusGet(url);
 }
 
-// ── Cheapest travel dates ────────────────────────────────────────────────────
-export async function amadeusFlightDates(params: {
+export interface FlightDatesParams {
   origin: string;
   destination: string;
-}): Promise<unknown> {
-  const { origin, destination } = params;
-
-  if (!origin || !destination) {
-    throw new Error("origin and destination are required");
-  }
-
-  const url =
-    `${BASE_URL}/v1/shopping/flight-dates` +
-    `?origin=${origin}` +
-    `&destination=${destination}` +
-    `&currencyCode=INR`;
-
-  return amadeusGet(url);
 }
 
-// ── Nearest airport ──────────────────────────────────────────────────────────
-export async function amadeusAirportNearest(params: {
+export interface AirportNearestParams {
   lat: number;
   lng: number;
-}): Promise<unknown> {
-  const { lat, lng } = params;
-
-  if (lat === undefined || lng === undefined) {
-    throw new Error("lat and lng are required");
-  }
-
-  const url =
-    `${BASE_URL}/v1/reference-data/locations/airports` +
-    `?latitude=${lat}` +
-    `&longitude=${lng}` +
-    `&sort=distance` +
-    `&page%5Blimit%5D=5`;
-
-  return amadeusGet(url);
 }
 
-// ── Points of interest ───────────────────────────────────────────────────────
-export async function amadeusPoiSearch(params: {
+export interface PoiSearchParams {
   lat: number;
   lng: number;
   radius?: number;
   categories?: string;
-}): Promise<unknown> {
-  const { lat, lng, radius = 1, categories } = params;
-
-  if (lat === undefined || lng === undefined) {
-    throw new Error("lat and lng are required");
-  }
-
-  let url =
-    `${BASE_URL}/v1/reference-data/locations/pois` +
-    `?latitude=${lat}` +
-    `&longitude=${lng}` +
-    `&radius=${radius}` +
-    `&page%5Blimit%5D=20`;
-
-  if (categories) url += `&categories=${categories}`;
-
-  return amadeusGet(url);
 }
 
-// ── Tours & activities ───────────────────────────────────────────────────────
-export async function amadeusActivities(params: {
+export interface ActivitiesParams {
   lat: number;
   lng: number;
   radius?: number;
-}): Promise<unknown> {
-  const { lat, lng, radius = 5 } = params;
-
-  if (lat === undefined || lng === undefined) {
-    throw new Error("lat and lng are required");
-  }
-
-  const url =
-    `${BASE_URL}/v1/shopping/activities` +
-    `?latitude=${lat}` +
-    `&longitude=${lng}` +
-    `&radius=${radius}`;
-
-  return amadeusGet(url);
 }
 
-// ── Safety ratings ───────────────────────────────────────────────────────────
-export async function amadeusSafePlace(params: {
+export interface SafePlaceParams {
   lat: number;
   lng: number;
   radius?: number;
-}): Promise<unknown> {
-  const { lat, lng, radius = 1 } = params;
-
-  if (lat === undefined || lng === undefined) {
-    throw new Error("lat and lng are required");
-  }
-
-  const url =
-    `${BASE_URL}/v1/safety/safety-rated-locations` +
-    `?latitude=${lat}` +
-    `&longitude=${lng}` +
-    `&radius=${radius}` +
-    `&page%5Blimit%5D=20`;
-
-  return amadeusGet(url);
 }
 
-// ── Unified action-based dispatcher (mirrors the edge-function interface) ─────
+// ── Core dispatcher — calls the Supabase Edge Function ───────────────────────
+
+async function callEdgeFunction(
+  action: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const { data, error } = await supabase.functions.invoke("amadeus", {
+    body: { action, ...params },
+  });
+
+  if (error) {
+    // Try to surface a useful message from the edge function error body
+    let detail = error.message ?? "Unknown error";
+
+    // supabase-js wraps the response body in error.context on HTTP errors
+    try {
+      const ctx = (error as any).context;
+      if (ctx) {
+        const text = typeof ctx === "string" ? ctx : await ctx.text?.();
+        if (text) {
+          const parsed = JSON.parse(text);
+          detail = parsed?.error ?? parsed?.message ?? text;
+        }
+      }
+    } catch {
+      /* ignore parse errors — use original message */
+    }
+
+    // Provide friendly messages for common failure modes
+    if (
+      detail.toLowerCase().includes("amadeus auth") ||
+      detail.toLowerCase().includes("client_credentials")
+    ) {
+      throw new Error(
+        "Amadeus API credentials are not configured on the server. " +
+          "Please set AMADEUS_API_KEY and AMADEUS_API_SECRET in your Supabase project secrets.",
+      );
+    }
+
+    if (detail.toLowerCase().includes("not configured")) {
+      throw new Error(
+        "Amadeus API is not configured. Please add AMADEUS_API_KEY and AMADEUS_API_SECRET to your Supabase Edge Function secrets.",
+      );
+    }
+
+    throw new Error(`Amadeus request failed: ${detail}`);
+  }
+
+  if (!data) {
+    throw new Error("Amadeus returned an empty response.");
+  }
+
+  // The edge function may return { error: "..." } with a 200 status in some cases
+  if (typeof data === "object" && data !== null && "error" in data) {
+    throw new Error(`Amadeus error: ${(data as any).error}`);
+  }
+
+  return data;
+}
+
+// ── Public API functions ─────────────────────────────────────────────────────
+
+/**
+ * Search for flight offers.
+ * Requires IATA airport codes for origin and destination (e.g. "DEL", "BOM").
+ */
+export async function amadeusFlightOffers(
+  params: FlightOffersParams,
+): Promise<unknown> {
+  const { origin, destination, departureDate } = params;
+  if (!origin || !destination || !departureDate) {
+    throw new Error("origin, destination, and departureDate are required.");
+  }
+  return callEdgeFunction("flight-offers", params as Record<string, unknown>);
+}
+
+/**
+ * List hotels in a city by IATA city code (e.g. "DEL" for Delhi).
+ */
+export async function amadeusHotelList(
+  params: HotelListParams,
+): Promise<unknown> {
+  if (!params.cityCode) throw new Error("cityCode is required.");
+  return callEdgeFunction("hotel-list", params as Record<string, unknown>);
+}
+
+/**
+ * Get pricing and availability for specific hotels.
+ */
+export async function amadeusHotelOffers(
+  params: HotelOffersParams,
+): Promise<unknown> {
+  const { hotelIds, checkInDate, checkOutDate } = params;
+  if (!hotelIds || !checkInDate || !checkOutDate) {
+    throw new Error("hotelIds, checkInDate, and checkOutDate are required.");
+  }
+  return callEdgeFunction("hotel-offers", params as Record<string, unknown>);
+}
+
+/**
+ * Search for cities and airports by keyword.
+ */
+export async function amadeusCitySearch(
+  params: CitySearchParams,
+): Promise<unknown> {
+  if (!params.keyword) throw new Error("keyword is required.");
+  return callEdgeFunction("city-search", params as Record<string, unknown>);
+}
+
+/**
+ * Get cheap flight destination inspirations from an origin.
+ */
+export async function amadeusFlightInspirations(
+  params: FlightInspirationsParams,
+): Promise<unknown> {
+  if (!params.origin) throw new Error("origin is required.");
+  return callEdgeFunction(
+    "flight-inspirations",
+    params as Record<string, unknown>,
+  );
+}
+
+/**
+ * Get the cheapest travel dates between two cities.
+ */
+export async function amadeusFlightDates(
+  params: FlightDatesParams,
+): Promise<unknown> {
+  if (!params.origin || !params.destination) {
+    throw new Error("origin and destination are required.");
+  }
+  return callEdgeFunction("flight-dates", params as Record<string, unknown>);
+}
+
+/**
+ * Find the nearest airports to a lat/lng coordinate.
+ */
+export async function amadeusAirportNearest(
+  params: AirportNearestParams,
+): Promise<unknown> {
+  if (params.lat === undefined || params.lng === undefined) {
+    throw new Error("lat and lng are required.");
+  }
+  return callEdgeFunction("airport-nearest", params as Record<string, unknown>);
+}
+
+/**
+ * Search for points of interest near a coordinate.
+ */
+export async function amadeusPoiSearch(
+  params: PoiSearchParams,
+): Promise<unknown> {
+  if (params.lat === undefined || params.lng === undefined) {
+    throw new Error("lat and lng are required.");
+  }
+  return callEdgeFunction("poi-search", params as Record<string, unknown>);
+}
+
+/**
+ * Search for tours and activities near a coordinate.
+ */
+export async function amadeusActivities(
+  params: ActivitiesParams,
+): Promise<unknown> {
+  if (params.lat === undefined || params.lng === undefined) {
+    throw new Error("lat and lng are required.");
+  }
+  return callEdgeFunction("activities", params as Record<string, unknown>);
+}
+
+/**
+ * Get safety ratings for locations near a coordinate.
+ */
+export async function amadeusSafePlace(
+  params: SafePlaceParams,
+): Promise<unknown> {
+  if (params.lat === undefined || params.lng === undefined) {
+    throw new Error("lat and lng are required.");
+  }
+  return callEdgeFunction("safe-place", params as Record<string, unknown>);
+}
+
+/**
+ * Unified action-based dispatcher — mirrors the edge-function interface.
+ * Use this when you have a dynamic action string.
+ */
 export async function amadeus(body: {
   action: string;
   [key: string]: unknown;
 }): Promise<unknown> {
   const { action, ...params } = body;
-
-  switch (action) {
-    case "flight-offers":
-      return amadeusFlightOffers(params as Parameters<typeof amadeusFlightOffers>[0]);
-
-    case "hotel-list":
-      return amadeusHotelList(params as Parameters<typeof amadeusHotelList>[0]);
-
-    case "hotel-offers":
-      return amadeusHotelOffers(params as Parameters<typeof amadeusHotelOffers>[0]);
-
-    case "city-search":
-      return amadeusCitySearch(params as Parameters<typeof amadeusCitySearch>[0]);
-
-    case "flight-inspirations":
-      return amadeusFlightInspirations(
-        params as Parameters<typeof amadeusFlightInspirations>[0],
-      );
-
-    case "flight-dates":
-      return amadeusFlightDates(params as Parameters<typeof amadeusFlightDates>[0]);
-
-    case "airport-nearest":
-      return amadeusAirportNearest(
-        params as Parameters<typeof amadeusAirportNearest>[0],
-      );
-
-    case "poi-search":
-      return amadeusPoiSearch(params as Parameters<typeof amadeusPoiSearch>[0]);
-
-    case "activities":
-      return amadeusActivities(params as Parameters<typeof amadeusActivities>[0]);
-
-    case "safe-place":
-      return amadeusSafePlace(params as Parameters<typeof amadeusSafePlace>[0]);
-
-    default:
-      throw new Error(
-        `Unknown action: "${action}". Supported: flight-offers, hotel-list, hotel-offers, ` +
-          `city-search, flight-inspirations, flight-dates, airport-nearest, poi-search, ` +
-          `activities, safe-place`,
-      );
-  }
+  if (!action) throw new Error("action is required.");
+  return callEdgeFunction(action, params);
 }
