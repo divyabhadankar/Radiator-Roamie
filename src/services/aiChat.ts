@@ -5,9 +5,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string;
-const GROQ_BASE = "https://api.groq.com/openai/v1";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_CHAT_URL = "/api/groq-chat";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Intent types
@@ -1024,30 +1022,31 @@ async function groqFetch(
   temperature = 0.3,
   maxTokens = 3072,
 ): Promise<Response> {
-  if (!GROQ_API_KEY) throw new Error("VITE_GROQ_API_KEY is not configured");
-
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+  const res = await fetch(GROQ_CHAT_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: GROQ_MODEL,
       messages,
       temperature,
       max_tokens: maxTokens,
       stream,
-      stop: null,
     }),
   });
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
+    let errPayload: any = {};
+    try {
+      errPayload = await res.clone().json();
+    } catch {
+      /* ignore */
+    }
+    const errCode: string = errPayload?.error ?? "";
+    if (res.status === 401 || errCode === "INVALID_API_KEY")
+      throw new Error("INVALID_API_KEY");
+    if (res.status === 429 || errCode === "RATE_LIMIT")
+      throw new Error("RATE_LIMIT");
     if (res.status >= 500) throw new Error(`GROQ_SERVER_ERROR_${res.status}`);
-    throw new Error(`Groq API [${res.status}]: ${errText.slice(0, 200)}`);
+    throw new Error(`Groq API [${res.status}]: ${errCode || "unknown error"}`);
   }
 
   return res;

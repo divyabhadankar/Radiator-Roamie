@@ -4,9 +4,7 @@
 // • Text-to-Speech  → Browser SpeechSynthesis (language-aware)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-const GROQ_BASE = "https://api.groq.com/openai/v1";
-const WHISPER_MODEL = "whisper-large-v3-turbo";
+const GROQ_TRANSCRIBE_URL = "/api/groq-transcribe";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -150,71 +148,59 @@ export async function transcribeWithGroq(
   audioBlob: Blob,
   language = "en",
 ): Promise<string> {
-  if (!GROQ_API_KEY) {
-    throw new Error("MISSING_API_KEY");
-  }
-
   if (!audioBlob || audioBlob.size < 100) {
     throw new Error("EMPTY_AUDIO");
   }
 
-  const ext = mimeToExt(audioBlob.type || "audio/webm");
-
-  // Groq Whisper requires the filename to have a recognised audio extension
-  const file = new File([audioBlob], `recording.${ext}`, {
-    type: audioBlob.type || "audio/webm",
-  });
-
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("model", WHISPER_MODEL);
-  formData.append("response_format", "text");
-  formData.append("temperature", "0");
-
-  // Strip region subtag — Whisper uses ISO 639-1 (e.g. "hi", not "hi-IN")
-  const langCode = language.split("-")[0].toLowerCase();
-  // Always send language param so Whisper doesn't auto-detect incorrectly
-  if (langCode) {
-    formData.append("language", langCode);
+  // Convert blob to base64 to send as JSON to the server-side route
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const uint8 = new Uint8Array(arrayBuffer);
+  let binary = "";
+  for (let i = 0; i < uint8.byteLength; i++) {
+    binary += String.fromCharCode(uint8[i]);
   }
+  const base64 = btoa(binary);
+
+  const langCode = language.split("-")[0].toLowerCase();
 
   let res: Response;
   try {
-    res = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+    res = await fetch(GROQ_TRANSCRIBE_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-      },
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audio: base64,
+        mimeType: audioBlob.type || "audio/webm",
+        language: langCode,
+      }),
     });
   } catch (networkErr: unknown) {
-    throw new Error(
-      `Network error while reaching Groq API: ${(networkErr as Error).message}`,
-    );
+    throw new Error(`Network error: ${(networkErr as Error).message}`);
   }
 
   if (!res.ok) {
-    let errBody = "";
+    let errPayload: any = {};
     try {
-      errBody = await res.text();
+      errPayload = await res.json();
     } catch {
       /* ignore */
     }
 
-    if (res.status === 401) throw new Error("INVALID_API_KEY");
-    if (res.status === 429) throw new Error("RATE_LIMIT");
-    if (res.status === 413) throw new Error("AUDIO_TOO_LARGE");
-
-    throw new Error(
-      `Groq Whisper error [${res.status}]: ${errBody.slice(0, 300)}`,
-    );
+    const code: string = errPayload?.error ?? "";
+    if (res.status === 401 || code === "INVALID_API_KEY")
+      throw new Error("INVALID_API_KEY");
+    if (res.status === 429 || code === "RATE_LIMIT")
+      throw new Error("RATE_LIMIT");
+    if (res.status === 413 || code === "AUDIO_TOO_LARGE")
+      throw new Error("AUDIO_TOO_LARGE");
+    if (code === "EMPTY_AUDIO") throw new Error("EMPTY_AUDIO");
+    throw new Error(code || `Transcription error [${res.status}]`);
   }
 
-  const text = await res.text();
-  const cleaned = text.trim();
+  const data = await res.json();
 
-  if (!cleaned) throw new Error("EMPTY_TRANSCRIPT");
-  return cleaned;
+  if (data.empty || !data.transcript) throw new Error("EMPTY_TRANSCRIPT");
+  return data.transcript as string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

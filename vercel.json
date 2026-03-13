@@ -2,6 +2,12 @@
   "functions": {
     "api/amadeus.ts": {
       "runtime": "@vercel/node"
+    },
+    "api/groq-chat.ts": {
+      "runtime": "@vercel/node"
+    },
+    "api/groq-transcribe.ts": {
+      "runtime": "@vercel/node"
     }
   },
   "rewrites": [
